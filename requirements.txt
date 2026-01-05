@@ -5,3 +5,4 @@ fastembed
 groq
 pynacl
 python-dotenv
+httpx
