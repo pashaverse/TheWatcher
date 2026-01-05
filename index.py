@@ -5,7 +5,6 @@ from groq import Groq
 from qdrant_client import QdrantClient
 from fastembed import TextEmbedding
 import os
-import json
 
 app = FastAPI()
 
@@ -26,7 +25,6 @@ SYSTEM_PROMPT = (
 )
 
 # --- CONFIGURATION ---
-# Load Environment Variables (Set these in Render Dashboard)
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 QDRANT_URL = os.getenv("QDRANT_URL")
 QDRANT_API_KEY = os.getenv("QDRANT_API_KEY")
@@ -37,13 +35,14 @@ groq_client = Groq(api_key=GROQ_API_KEY)
 qdrant_client = QdrantClient(url=QDRANT_URL, api_key=QDRANT_API_KEY)
 verify_key = VerifyKey(bytes.fromhex(DISCORD_PUBLIC_KEY))
 
-# Initialize Embedding Model (Must match the one used in ingest.py)
-# This runs locally on the server (Free & Fast)
-embed_model = TextEmbedding(model_name="BAAI/bge-small-en-v1.5")
+# --- FIX: MODEL MATCHING ---
+# We switched this to 'sentence-transformers/all-MiniLM-L6-v2' 
+# to match the model you used to upload the PDF.
+embed_model = TextEmbedding(model_name="sentence-transformers/all-MiniLM-L6-v2")
 
-@app.post("/interactions") # Render might send to root / or /interactions depending on config, but this is standard
+@app.post("/interactions")
 async def interaction(request: Request):
-    # 1. Verify Signature (Discord Security)
+    # 1. Verify Signature
     try:
         signature = request.headers.get("X-Signature-Ed25519")
         timestamp = request.headers.get("X-Signature-Timestamp")
@@ -58,28 +57,27 @@ async def interaction(request: Request):
 
     data = await request.json()
 
-    # 2. Handle PING (Required for Discord verification)
+    # 2. Handle PING
     if data["type"] == 1:
         return {"type": 1}
 
     # 3. Handle Slash Command
     if data["type"] == 2:
-        # We assume the command name is "watcher" or similar, but we just grab the query
         try:
-            # Get user's question
-            # Note: This logic assumes a simple slash command structure
+            # Get user's question safely
             if "options" in data["data"] and len(data["data"]["options"]) > 0:
                 user_query = data["data"]["options"][0]["value"]
             else:
-                user_query = "What do you see?" # Fallback
+                user_query = "What do you see?"
 
             # --- RAG: RETRIEVE CONTEXT ---
             
-            # A. Vectorize Question (FastEmbed)
-            # We convert the generator to a list and take the first item
+            # A. Vectorize Question
+            # FastEmbed returns a generator, so we convert to list
             query_vector = list(embed_model.embed([user_query]))[0].tolist()
 
-            # B. Search Qdrant (The Archive)
+            # B. Search Qdrant
+            # Note: This requires qdrant-client >= 1.7.3 in requirements.txt
             search_results = qdrant_client.search(
                 collection_name="knowledge_base",
                 query_vector=query_vector,
@@ -90,10 +88,9 @@ async def interaction(request: Request):
             if not search_results:
                 context_text = "The archives are silent on this matter."
             else:
-                # Extract the text payload from the search hits
                 context_text = "\n".join([hit.payload['text'] for hit in search_results])
 
-            # --- GENERATE ANSWER (GROQ) ---
+            # --- GENERATE ANSWER ---
             chat_completion = groq_client.chat.completions.create(
                 messages=[
                     {"role": "system", "content": SYSTEM_PROMPT},
@@ -105,15 +102,14 @@ async def interaction(request: Request):
             response_content = chat_completion.choices[0].message.content
 
             return {
-                "type": 4, # Channel Message with Source
+                "type": 4, 
                 "data": {
                     "content": response_content
                 }
             }
 
         except Exception as e:
-            # Error handling to keep the bot alive
-            print(f"Error: {e}") # Print to Render logs
+            print(f"Error: {e}") # This prints to Render logs
             return {
                 "type": 4,
                 "data": {
@@ -122,4 +118,3 @@ async def interaction(request: Request):
             }
 
     return {"type": 4, "data": {"content": "Unknown nexus event."}}
-
