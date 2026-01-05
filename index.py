@@ -36,7 +36,6 @@ qdrant_client = QdrantClient(url=QDRANT_URL, api_key=QDRANT_API_KEY)
 verify_key = VerifyKey(bytes.fromhex(DISCORD_PUBLIC_KEY))
 
 # --- FIX: MODEL MATCHING ---
-# We switched this to match your ingest script exactly
 embed_model = TextEmbedding(model_name="sentence-transformers/all-MiniLM-L6-v2")
 
 @app.post("/interactions")
@@ -73,8 +72,12 @@ async def interaction(request: Request):
             # A. Vectorize Question
             query_vector = list(embed_model.embed([user_query]))[0].tolist()
 
-            # B. Search Qdrant (Updated for older versions compatibility)
-            # If .search() fails, this method is the most reliable fallback
+            # --- DEBUGGING INSERTED HERE ---
+            print(f"DEBUG INFO: Client type is {type(qdrant_client)}")
+            print(f"DEBUG INFO: Client methods: {dir(qdrant_client)}")
+            # -------------------------------
+
+            # B. Search Qdrant
             search_results = qdrant_client.search(
                 collection_name="knowledge_base",
                 query_vector=query_vector,
@@ -106,7 +109,8 @@ async def interaction(request: Request):
             }
 
         except Exception as e:
-            print(f"Error: {e}")
+            # Added more detailed error logging here too
+            print(f"CRITICAL ERROR: {type(e).__name__}: {e}")
             return {
                 "type": 4,
                 "data": {
