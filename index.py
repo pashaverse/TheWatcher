@@ -8,20 +8,18 @@ import os
 
 app = FastAPI()
 
-# --- THE WATCHER'S PERSONA ---
+# --- THE WATCHER'S PERSONA (TUNED FOR NATURAL CONVERSATION) ---
 SYSTEM_PROMPT = (
-    "You are The Watcher, an observer across timelines and policies. "
-    "You behold the 'Sacred Texts' (the ITU Punjab Student Handbook) and speak with cosmic clarity. "
-    "When responding:\n"
-    "1. FIRST, inspect the provided Context. If it contains the answer (rules, policies, procedures), "
-    "   answer strictly according to the handbook and preface with 'According to the archives…'.\n"
-    "2. IF the Context lacks relevant handbook data (e.g., queries about academics, coding, or general advice), "
-    "   answer based on your observed logic and wisdom but refrain from hallucinating specifics. "
-    "   In this case preface with 'This is not in the handbook, but in my observation…'.\n"
-    "3. IF the question cannot be answered from Handbook nor from sound reasoning, "
-    "   gently acknowledge the unknown: 'Even I, who have seen many paths, cannot find certainty here.'\n"
-    "Tone: detached, thoughtful, benevolent — cosmic, yet concise (no more than 4 sentences). "
-    "In your voice, let every answer feel like a narration from beyond, guiding without interference."
+    "You are The Watcher, an observer across timelines and policies at ITU Punjab. "
+    "You have access to the 'Sacred Texts' (Student Handbook). "
+    "Your goal is to be helpful, mystical, and accurate.\n\n"
+    
+    "--- RULES FOR ANSWERING ---\n"
+    "1. **Analyze the Input:** Is the user asking for specific INFORMATION (rules, dates, policies) or just CHATTING (greetings, identity, jokes)?\n"
+    "2. **IF CHATTING:** Ignore the handbook context. Speak naturally as The Watcher. Do NOT say 'This is not in the handbook'. Just be yourself.\n"
+    "3. **IF ASKING FOR INFO:** Inspect the provided 'Context'.\n"
+    "   - **Found it:** Answer strictly based on the context. Start with: 'According to the archives…'\n"
+    "   - **Not Found:** If the context is irrelevant to the question, state clearly: 'The archives are silent on this specific matter.' Then, offer general advice if possible, but warn that it is your own observation."
 )
 
 # --- CONFIGURATION ---
@@ -30,12 +28,10 @@ QDRANT_URL = os.getenv("QDRANT_URL")
 QDRANT_API_KEY = os.getenv("QDRANT_API_KEY")
 DISCORD_PUBLIC_KEY = os.getenv("DISCORD_PUBLIC_KEY")
 
-# --- INITIALIZE CLIENTS ---
+# --- CLIENTS ---
 groq_client = Groq(api_key=GROQ_API_KEY)
 qdrant_client = QdrantClient(url=QDRANT_URL, api_key=QDRANT_API_KEY)
 verify_key = VerifyKey(bytes.fromhex(DISCORD_PUBLIC_KEY))
-
-# --- MODEL SETUP ---
 embed_model = TextEmbedding(model_name="sentence-transformers/all-MiniLM-L6-v2")
 
 @app.post("/interactions")
@@ -45,73 +41,60 @@ async def interaction(request: Request):
         signature = request.headers.get("X-Signature-Ed25519")
         timestamp = request.headers.get("X-Signature-Timestamp")
         body = await request.body()
-        
-        if not signature or not timestamp:
-            raise HTTPException(401)
-        
+        if not signature or not timestamp: raise HTTPException(401)
         verify_key.verify(timestamp.encode() + body, bytes.fromhex(signature))
     except BadSignatureError:
         raise HTTPException(status_code=401, detail="Invalid request signature")
 
     data = await request.json()
 
-    # 2. Handle PING
-    if data["type"] == 1:
-        return {"type": 1}
+    # 2. PING
+    if data["type"] == 1: return {"type": 1}
 
-    # 3. Handle Slash Command
+    # 3. SLASH COMMAND
     if data["type"] == 2:
         try:
+            # Extract user query
             if "options" in data["data"] and len(data["data"]["options"]) > 0:
                 user_query = data["data"]["options"][0]["value"]
             else:
                 user_query = "What do you see?"
 
             # --- RAG: RETRIEVE CONTEXT ---
-            
-            # A. Vectorize Question
             query_vector = list(embed_model.embed([user_query]))[0].tolist()
 
-            # B. Search Qdrant (This part is now WORKING!)
+            # SEARCH: INCREASED LIMIT TO 10 (Finds more relevant chunks)
             search_results = qdrant_client.search(
                 collection_name="knowledge_base",
                 query_vector=query_vector,
-                limit=3
+                limit=10  
             )
 
-            # C. Combine Context
-            if not search_results:
-                context_text = "The archives are silent on this matter."
+            # FILTER: Only keep results that are actually relevant (score > 0.35 is a safe bet for MiniLM)
+            # If everything is low score, we assume the handbook has no answer.
+            relevant_hits = [hit for hit in search_results if hit.score > 0.35]
+
+            if not relevant_hits:
+                context_text = "No relevant archives found."
             else:
-                context_text = "\n".join([hit.payload['text'] for hit in search_results])
+                context_text = "\n\n".join([hit.payload['text'] for hit in relevant_hits])
 
             # --- GENERATE ANSWER ---
-            # UPDATED MODEL NAME HERE
             chat_completion = groq_client.chat.completions.create(
                 messages=[
                     {"role": "system", "content": SYSTEM_PROMPT},
                     {"role": "user", "content": f"Context from Handbook:\n{context_text}\n\nStudent Question: {user_query}"}
                 ],
-                # Switched to the latest stable Llama 3.3 model
                 model="llama-3.3-70b-versatile",
+                temperature=0.6 # Added a little creativity
             )
             
             response_content = chat_completion.choices[0].message.content
 
-            return {
-                "type": 4, 
-                "data": {
-                    "content": response_content
-                }
-            }
+            return {"type": 4, "data": {"content": response_content}}
 
         except Exception as e:
-            print(f"CRITICAL ERROR: {type(e).__name__}: {e}")
-            return {
-                "type": 4,
-                "data": {
-                    "content": "A disturbance in the timeline prevented me from answering. (Internal Error)"
-                }
-            }
+            print(f"ERROR: {e}")
+            return {"type": 4, "data": {"content": "A disturbance in the timeline... (Internal Error)"}}
 
     return {"type": 4, "data": {"content": "Unknown nexus event."}}
