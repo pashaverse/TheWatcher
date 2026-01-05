@@ -1,0 +1,8 @@
+fastapi
+uvicorn
+pynacl
+requests
+python-dotenv
+groq
+pinecone
+cohere
