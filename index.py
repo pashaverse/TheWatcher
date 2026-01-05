@@ -35,7 +35,7 @@ groq_client = Groq(api_key=GROQ_API_KEY)
 qdrant_client = QdrantClient(url=QDRANT_URL, api_key=QDRANT_API_KEY)
 verify_key = VerifyKey(bytes.fromhex(DISCORD_PUBLIC_KEY))
 
-# --- FIX: MODEL MATCHING ---
+# --- MODEL SETUP ---
 embed_model = TextEmbedding(model_name="sentence-transformers/all-MiniLM-L6-v2")
 
 @app.post("/interactions")
@@ -72,12 +72,7 @@ async def interaction(request: Request):
             # A. Vectorize Question
             query_vector = list(embed_model.embed([user_query]))[0].tolist()
 
-            # --- DEBUGGING INSERTED HERE ---
-            print(f"DEBUG INFO: Client type is {type(qdrant_client)}")
-            print(f"DEBUG INFO: Client methods: {dir(qdrant_client)}")
-            # -------------------------------
-
-            # B. Search Qdrant
+            # B. Search Qdrant (This part is now WORKING!)
             search_results = qdrant_client.search(
                 collection_name="knowledge_base",
                 query_vector=query_vector,
@@ -91,12 +86,14 @@ async def interaction(request: Request):
                 context_text = "\n".join([hit.payload['text'] for hit in search_results])
 
             # --- GENERATE ANSWER ---
+            # UPDATED MODEL NAME HERE
             chat_completion = groq_client.chat.completions.create(
                 messages=[
                     {"role": "system", "content": SYSTEM_PROMPT},
                     {"role": "user", "content": f"Context from Handbook:\n{context_text}\n\nStudent Question: {user_query}"}
                 ],
-                model="llama3-8b-8192",
+                # Switched to the latest stable Llama 3.3 model
+                model="llama-3.3-70b-versatile",
             )
             
             response_content = chat_completion.choices[0].message.content
@@ -109,7 +106,6 @@ async def interaction(request: Request):
             }
 
         except Exception as e:
-            # Added more detailed error logging here too
             print(f"CRITICAL ERROR: {type(e).__name__}: {e}")
             return {
                 "type": 4,
