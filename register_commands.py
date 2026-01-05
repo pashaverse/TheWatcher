@@ -1,10 +1,15 @@
 import requests
+import os
+from dotenv import load_dotenv
+
+# 1. Load the real password from the .env file
+load_dotenv()
+REAL_BOT_TOKEN = os.getenv("DISCORD_TOKEN") 
 
 #CONFIGURATION
 APPLICATION_ID = "1457475133135524116"
-BOT_TOKEN = "BOT_TOKEN" 
 
-url = f"https://discord.com/api/v10/applications/1457475133135524116/commands"
+url = f"https://discord.com/api/v10/applications/{APPLICATION_ID}/commands"
 
 json_body = {
     "name": "watcher", 
@@ -20,7 +25,8 @@ json_body = {
     ]
 }
 
-headers = {"Authorization": f"Bot {BOT_TOKEN}"}
+# 2. Use the real token here
+headers = {"Authorization": f"Bot {REAL_BOT_TOKEN}"}
 
 response = requests.post(url, headers=headers, json=json_body)
 
