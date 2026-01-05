@@ -1,81 +1,92 @@
 import os
-import time
-from pinecone import Pinecone
-import cohere
+from groq import Groq
+from qdrant_client import QdrantClient
+from qdrant_client.models import Distance, VectorParams, PointStruct
+from dotenv import load_dotenv
+from sentence_transformers import SentenceTransformer
 from pypdf import PdfReader
-from cohere.errors import TooManyRequestsError
+import time
 
-# --- 🔑 YOUR KEYS ---
-PINECONE_KEY = "pcsk_4LSFaz_3AymY2oTqu7KdfJoptXzkb5JwU4um4mzgnyopmQTwAjG4jbVh5DWpp6La2iA6D8"
-COHERE_KEY = "GIL16ifLJwOhalqYndZBYAdXc9H4SnH6NdkJKEOr"
+# Load secrets
+load_dotenv()
 
-# --- ⚙️ CONFIGURATION ---
-INDEX_NAME = "watcher-memory" 
-PDF_PATH = "handbook.pdf"
+# Configuration
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+QDRANT_URL = os.getenv("QDRANT_URL")
+QDRANT_API_KEY = os.getenv("QDRANT_API_KEY")
+COLLECTION_NAME = "knowledge_base"
 
-# Initialize
-pc = Pinecone(api_key=PINECONE_KEY)
-co = cohere.Client(COHERE_KEY)
+# Initialize Clients
+groq_client = Groq(api_key=GROQ_API_KEY)
 
-# 1. Read PDF
-print(f"📖 Reading {PDF_PATH}...")
-if not os.path.exists(PDF_PATH):
-    print("❌ PDF not found!")
+# FIX 1: Set a long timeout (60 seconds) so it doesn't give up easily
+qdrant_client = QdrantClient(
+    url=QDRANT_URL, 
+    api_key=QDRANT_API_KEY,
+    timeout=60.0 
+)
+
+model = SentenceTransformer('all-MiniLM-L6-v2') 
+
+# 1. Create Collection
+if not qdrant_client.collection_exists(collection_name=COLLECTION_NAME):
+    qdrant_client.create_collection(
+        collection_name=COLLECTION_NAME,
+        vectors_config=VectorParams(size=384, distance=Distance.COSINE),
+    )
+    print(f"Created collection: '{COLLECTION_NAME}'")
+
+# 2. Read PDF
+print("Reading 'handbook.pdf'...")
+documents = []
+try:
+    reader = PdfReader("handbook.pdf")
+    full_text = ""
+    for page in reader.pages:
+        text = page.extract_text()
+        if text:
+            full_text += text + "\n"
+    
+    # Split text by newlines and remove empty lines
+    documents = [line.strip() for line in full_text.split('\n') if line.strip()]
+    print(f"I found {len(documents)} text chunks.")
+
+except FileNotFoundError:
+    print("ERROR: 'handbook.pdf' not found.")
     exit()
 
-reader = PdfReader(PDF_PATH)
-text = ""
-for page in reader.pages:
-    extract = page.extract_text()
-    if extract:
-        text += extract + "\n"
+# 3. Vectorize
+print("Converting text to vectors (this might take a moment)...")
+embeddings = model.encode(documents)
 
-# 2. Chunking
-CHUNK_SIZE = 1000
-chunks = [text[i:i+CHUNK_SIZE] for i in range(0, len(text), CHUNK_SIZE)]
-total_chunks = len(chunks)
-print(f"🧩 Split into {total_chunks} chunks.")
+points = []
+for idx, (doc, vector) in enumerate(zip(documents, embeddings)):
+    points.append(PointStruct(
+        id=idx,
+        vector=vector.tolist(),
+        payload={"text": doc}
+    ))
 
-# 3. Embed & Upload (With Progress Bar)
-print("🚀 Uploading to The Archive...")
-index = pc.Index(INDEX_NAME)
-batch_size = 20
-total_batches = (total_chunks + batch_size - 1) // batch_size # Calculate total batches
+# 4. Upload in Smaller Batches
+print(f"Starting upload of {len(points)} points...")
 
-for i in range(0, total_chunks, batch_size):
-    batch_chunks = chunks[i:i+batch_size]
-    current_batch = (i // batch_size) + 1
+# FIX 2: Smaller batch size (50) to be safer
+batch_size = 50 
+
+for i in range(0, len(points), batch_size):
+    batch = points[i : i + batch_size]
     
-    # Progress Indicator
-    percent = int((current_batch / total_batches) * 100)
-    print(f"\n📦 Processing Batch {current_batch}/{total_batches} ({percent}%)")
-    
-    while True:
-        try:
-            response = co.embed(
-                texts=batch_chunks, 
-                model="embed-english-v3.0", 
-                input_type="search_document"
-            )
-            
-            vectors = []
-            for j, embedding in enumerate(response.embeddings):
-                vectors.append({
-                    "id": f"chunk_{i+j}",
-                    "values": embedding,
-                    "metadata": {"text": batch_chunks[j]}
-                })
+    try:
+        qdrant_client.upsert(
+            collection_name=COLLECTION_NAME,
+            points=batch
+        )
+        print(f"Uploaded batch {i} to {i + len(batch)}...")
+    except Exception as e:
+        print(f"Error uploading batch starting at {i}: {e}")
+        # Wait a bit longer if there is an error
+        time.sleep(2)
+        
+    time.sleep(0.2) 
 
-            index.upsert(vectors=vectors)
-            print(f"   ✅ Success! Waiting 12s to respect rate limit...")
-            time.sleep(12) 
-            break 
-
-        except TooManyRequestsError:
-            print("   ⏳ Rate limit hit. Cooling down for 60 seconds... (Don't close window)")
-            time.sleep(60)
-        except Exception as e:
-            print(f"   ❌ Error: {e}")
-            break
-
-print("\n🎉 MISSION ACCOMPLISHED. The Watcher is ready.")
+print("Success! Process finished.")

@@ -1,0 +1,4 @@
+.env
+handbook.pdf
+venv/
+__pycache__/

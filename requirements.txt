@@ -1,8 +1,7 @@
 fastapi
 uvicorn
-pynacl
-requests
-python-dotenv
+qdrant-client
+fastembed
 groq
-pinecone
-cohere
+pynacl
+python-dotenv
