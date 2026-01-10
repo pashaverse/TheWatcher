@@ -6,3 +6,5 @@ groq
 pynacl
 python-dotenv
 httpx
+requests
+beautifulsoup4
