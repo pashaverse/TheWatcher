@@ -1,4 +1,5 @@
 .env
 handbook.pdf
+ingest.py
 venv/
 __pycache__/
