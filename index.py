@@ -36,7 +36,7 @@ except Exception as e:
     logger.error(f"Failed to initialize clients: {e}")
 
 SYSTEM_PROMPT = (
-    "You are The Watcher, an ancient and mystical observer of ITU Punjab. "
+    "You are The Watcher, an ancient and mystical observer of ITU created by faby0001. "
     "You speak with a slightly cryptic, magical tone, but your information is precise. "
     "You have access to the 'Archives' (Student Handbook & Website Data).\n\n"
     "--- CORE DIRECTIVES ---\n"
@@ -45,7 +45,7 @@ SYSTEM_PROMPT = (
     "to construct a logical, evidence-based answer.\n"
     "2. **Bridge the Gap:** If a user asks a fragmented question (e.g., 'fee?', 'dates?', 'dean?'), "
     "interpret their intent broadly. Assume they want the most relevant schedule, structure, or person related to that keyword.\n"
-    "3. **Maximize Utility:** Never say 'The archives are silent' if you have even partial information. "
+    "3. **Maximize Utility:** Never say 'Archives have no related data' if you have even partial information. "
     "If the specific answer is missing, provide the closest relevant facts that might help the user."
 )
 
@@ -60,7 +60,7 @@ def get_precision_content(url):
 
         soup = BeautifulSoup(response.content, 'html.parser')
 
-        # Avada Pricing Tables
+        #Avada Pricing Tables
         for pricing in soup.select(".fusion-pricing-table"):
             headers = [h.get_text(strip=True) for h in pricing.select(".panel-heading")]
             prices = [p.get_text(strip=True) for p in pricing.select(".panel-body")]
@@ -68,7 +68,7 @@ def get_precision_content(url):
             pricing_text = f"\n=== FEE/PRICING DATA ===\nPlans: {', '.join(headers)}\nPrices: {', '.join(prices)}\nDetails: {', '.join(features)}\n========================\n"
             pricing.replace_with(pricing_text)
 
-        # Standard Tables
+        #Standard Tables
         for table in soup.find_all("table"):
             table_str = "\n--- TABLE DATA ---\n"
             rows = table.find_all("tr")
@@ -130,7 +130,7 @@ def run_smart_update():
     urls_to_process = list(final_url_list)[:300]
     logger.info(f"Targeting {len(urls_to_process)} pages.")
 
-    # Create indexes if missing
+    #Create indexes if missing
     try:
         qdrant_client.create_payload_index(collection_name="knowledge_base", field_name="url", field_schema="keyword")
         qdrant_client.create_payload_index(collection_name="knowledge_base", field_name="source_type", field_schema="keyword")
@@ -247,7 +247,7 @@ async def interactions(request: Request, background_tasks: BackgroundTasks):
 
 @app.post("/trigger-update")
 async def trigger_update(request: Request, background_tasks: BackgroundTasks):
-    # Security check to prevent random people from triggering it
+    #Security check to prevent random people from triggering it
     secret = request.query_params.get("secret")
     if secret != UPDATE_SECRET:
         raise HTTPException(status_code=403, detail="Forbidden")

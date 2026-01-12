@@ -2,7 +2,7 @@ import requests
 import os
 from dotenv import load_dotenv
 
-# 1. Load the real password from the .env file
+#1. Load the real password from the .env file
 load_dotenv()
 REAL_BOT_TOKEN = os.getenv("DISCORD_TOKEN") 
 
@@ -25,13 +25,12 @@ json_body = {
     ]
 }
 
-# 2. Use the real token here
 headers = {"Authorization": f"Bot {REAL_BOT_TOKEN}"}
 
 response = requests.post(url, headers=headers, json=json_body)
 
 if response.status_code in [200, 201]:
-    print("✅ Success! Command '/watcher' is registered.")
+    print("Success! Command '/watcher' is registered.")
 else:
     print(f"Error: {response.status_code}")
     print(response.json())

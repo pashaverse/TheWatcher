@@ -162,7 +162,7 @@ if __name__ == "__main__":
             vectors_config=VectorParams(size=384, distance=Distance.COSINE),
         )
 
-    # Create Index on 'url' so we can delete specific pages fast
+    #Create Index on 'url' so we can delete specific pages fast
     print("Verifying URL index...")
     try:
         qdrant_client.create_payload_index(collection_name=COLLECTION_NAME, field_name="url", field_schema="keyword")
@@ -178,7 +178,7 @@ if __name__ == "__main__":
     urls_to_process = list(final_url_list)[:SAFE_LIMIT]
     print(f"\nTargeted {len(urls_to_process)} pages for Safe Updates.")
 
-    # Optional: Wipe only legacy data that doesn't have a 'url' tag yet
+    #Optional: Wipe only legacy data that doesn't have a 'url' tag yet
     print("Checking for legacy data...")
     try:
         qdrant_client.delete(
