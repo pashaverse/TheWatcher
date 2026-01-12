@@ -18,11 +18,11 @@ COLLECTION_NAME = "knowledge_base"
 ITU_LINKS_STR = os.getenv("ITU_LINKS", "")
 SEED_URLS = [url.strip() for url in ITU_LINKS_STR.split(",") if url.strip()]
 
-# Limits
-SAFE_LIMIT = 300       # Max pages to scrape
-SLEEP_TIMER = 1.5      # Seconds to wait between pages
+#Limits
+SAFE_LIMIT = 300       #Max pages to scrape
+SLEEP_TIMER = 1.5      #Seconds to wait between pages
 
-# Initialize Clients
+#Initialize Clients
 qdrant_client = QdrantClient(url=QDRANT_URL, api_key=QDRANT_API_KEY, timeout=60)
 embed_model = TextEmbedding(model_name="sentence-transformers/all-MiniLM-L6-v2")
 
@@ -32,7 +32,7 @@ def discover_internal_links(seed_url):
     Visits a main page and finds all relevant sub-pages.
     """
     try:
-        print(f"🔍 Crawling Hub: {seed_url} ...")
+        print(f"Crawling Hub: {seed_url} ...")
         headers = {'User-Agent': 'Mozilla/5.0'}
         response = requests.get(seed_url, headers=headers, timeout=10)
         soup = BeautifulSoup(response.content, 'html.parser')
@@ -48,7 +48,7 @@ def discover_internal_links(seed_url):
             if parsed_url.netloc != base_domain: continue
             if any(x in full_url for x in [".pdf", ".jpg", "#", "wp-content", "login", "feed"]): continue
             
-            # Keywords to keep relevant pages only
+            #Keywords to keep relevant pages only
             if any(k in full_url for k in ["academics", "faculty", "program", "department", "admissions", "fee", "examinations", "research", "administration"]):
                 found_links.add(full_url)
 
@@ -62,7 +62,7 @@ def discover_internal_links(seed_url):
 #SCRAPER FUNCTION (With Table Support)
 def get_precision_content(url):
     try:
-        # Browser header to prevent getting blocked
+        #Browser header to prevent getting blocked
         headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
         }
@@ -82,19 +82,19 @@ def get_precision_content(url):
             pricing_text = f"\n=== FEE/PRICING DATA ===\nPlans: {', '.join(headers)}\nPrices: {', '.join(prices)}\nDetails: {', '.join(features)}\n========================\n"
             pricing.replace_with(pricing_text)
 
-        #B. SPECIAL HANDLER: STANDARD TABLES ---
+        #B. SPECIAL HANDLER: STANDARD TABLES 
         for table in soup.find_all("table"):
             table_str = "\n--- TABLE DATA ---\n"
             rows = table.find_all("tr")
             for row in rows:
                 cols = row.find_all(["td", "th"])
-                # Join columns with a pipe | to keep structure
+                #Join columns with a pipe | to keep structure
                 row_text = " | ".join(ele.get_text(strip=True) for ele in cols)
                 table_str += row_text + "\n"
             table_str += "------------------\n"
             table.replace_with(table_str)
 
-        #C. STANDARD CLEANUP (Avada Specifics) ---
+        #C. STANDARD CLEANUP (Avada Specifics)
         noise_selectors = [
             ".fusion-footer", ".fusion-header-wrapper", "#sliders-container", 
             ".fusion-sliding-bar", ".fusion-page-title-bar", "#side-header", 
@@ -104,12 +104,12 @@ def get_precision_content(url):
             for element in soup.select(selector):
                 element.decompose()
 
-        # D. GET TEXT 
-        # Try to find the main content box first
+        #D. GET TEXT 
+        #Try to find the main content box first
         main_content = soup.find(id="main")
         text = main_content.get_text(separator="\n") if main_content else soup.get_text(separator="\n")
 
-        # E. CHUNKING 
+        #E. CHUNKING 
         lines = [line.strip() for line in text.splitlines() if line.strip()]
         chunks = []
         chunk_size = 12   
@@ -129,20 +129,20 @@ def get_precision_content(url):
         print(f"Error scraping {url}: {e}")
         return []
 
-#MAIN EXECUTION-
+#MAIN EXECUTION
 if __name__ == "__main__":
     if not SEED_URLS:
-        print("❌ No links found in .env.")
+        print("No links found in .env.")
         exit()
 
-    # A. Setup Qdrant Collection
+    #A. Setup Qdrant Collection
     if not qdrant_client.collection_exists(collection_name=COLLECTION_NAME):
         qdrant_client.create_collection(
             collection_name=COLLECTION_NAME,
             vectors_config=VectorParams(size=384, distance=Distance.COSINE),
         )
 
-    # B. Create Index (Fixes "Bad Request" Error)
+    #B. Create Index (Fixes "Bad Request" Error)
     print("Checking indexes...")
     try:
         qdrant_client.create_payload_index(
@@ -154,24 +154,24 @@ if __name__ == "__main__":
     except Exception as e:
         print(f"   Index note: {e}")
 
-    # C. Discover Pages
-    print("--- 🕷️ Starting Discovery ---")
+    #C. Discover Pages
+    print("--- Starting Discovery ---")
     final_url_list = set(SEED_URLS)
     for seed in SEED_URLS:
         discovered = discover_internal_links(seed)
         final_url_list.update(discovered)
     
     urls_to_process = list(final_url_list)[:SAFE_LIMIT]
-    print(f"\n✅ Targeted {len(urls_to_process)} pages for processing.")
+    print(f"\nTargeted {len(urls_to_process)} pages for processing.")
 
-    # D. Clean Old Data (Full Refresh)
+    #D. Clean Old Data (Full Refresh)
     print("Cleaning old website memory...")
     qdrant_client.delete(
         collection_name=COLLECTION_NAME,
         points_selector=Filter(must=[FieldCondition(key="source_type", match=MatchValue(value="website"))])
     )
 
-    # E. Scrape & Process
+    #E. Scrape & Process
     all_documents = []
     print("Starting Scraping (This may take a few minutes)...")
     
@@ -185,7 +185,7 @@ if __name__ == "__main__":
         print("No text found.")
         exit()
 
-    # F. Vectorize & Upload
+    #F. Vectorize & Upload
     print(f"\n🧠 Vectorizing {len(all_documents)} text chunks...")
     embeddings = list(embed_model.embed(all_documents))
 
