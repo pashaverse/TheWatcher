@@ -1,0 +1,24 @@
+name = "thewatcher"
+main = "src/index.ts"
+compatibility_date = "2026-11-01"
+workers_dev = true
+
+# Workers AI: embeddings for search, plus the last-resort answer model
+[ai]
+binding = "AI"
+
+# Vector search over the handbook + ITU website (filled by ingest/refresh.py)
+[[vectorize]]
+binding = "VECTORIZE"
+index_name = "watcher-kb"
+
+[vars]
+# Tried in order; if one is rate-limited or down, the next one answers.
+GROQ_MODELS = "llama-3.3-70b-versatile,meta-llama/llama-4-scout-17b-16e-instruct,llama-3.1-8b-instant"
+WORKERS_AI_MODEL = "@cf/meta/llama-3.3-70b-instruct-fp8-fast"
+
+[observability]
+enabled = true
+
+# Secrets (set by the deploy workflow, or `wrangler secret put NAME`):
+#   DISCORD_PUBLIC_KEY, DISCORD_APPLICATION_ID, GROQ_API_KEY

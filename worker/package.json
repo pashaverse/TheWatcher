@@ -1,0 +1,18 @@
+{
+  "name": "thewatcher-bot",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "deploy": "wrangler deploy",
+    "dev": "wrangler dev",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "register": "node scripts/register-commands.mjs"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20261125.1",
+    "typescript": "^5.6.0",
+    "vitest": "^5.1.2",
+    "wrangler": "^4.168.0"
+  }
+}
