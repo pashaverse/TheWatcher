@@ -1,0 +1,2 @@
+# Extra pages to always include in the refresh (one URL per line).
+# Use this for important pages the crawler misses, e.g. a scholarships or fee page.

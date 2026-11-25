@@ -1,0 +1,24 @@
+name: Health check
+
+# Daily end-to-end check: can the bot embed a question and find answers?
+# If it fails, GitHub emails you. Set the repo variable WORKER_URL to the
+# worker's address (shown in the Deploy bot run summary).
+on:
+  schedule:
+    - cron: "43 4 * * *"   # 09:43 Pakistan time
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    if: vars.WORKER_URL != ''
+    steps:
+      - name: Ping /health
+        run: |
+          for i in 1 2 3; do
+            code=$(curl -s -o out.json -w '%{http_code}' "${{ vars.WORKER_URL }}/health") && cat out.json && echo
+            [ "$code" = "200" ] && exit 0
+            sleep 20
+          done
+          echo "::error::The Watcher health check failed (HTTP $code)"
+          exit 1

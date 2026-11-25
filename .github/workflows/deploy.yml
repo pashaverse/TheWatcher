@@ -1,0 +1,78 @@
+name: Deploy bot
+
+# Deploys the Cloudflare Worker, syncs secrets, registers slash commands and
+# points Discord at the bot. Runs on every change to worker/, or manually.
+on:
+  push:
+    branches: [main]
+    paths: ["worker/**", ".github/workflows/deploy.yml"]
+  workflow_dispatch:
+
+concurrency: deploy
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: worker
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: worker/package-lock.json
+
+      - run: npm ci
+
+      - name: Test
+        run: npm test && npm run typecheck
+
+      - name: Create Vectorize index (first run only)
+        run: npx wrangler vectorize get watcher-kb >/dev/null 2>&1 || npx wrangler vectorize create watcher-kb --dimensions=384 --metric=cosine
+
+      - name: Deploy worker
+        id: deploy
+        run: |
+          npx wrangler deploy | tee deploy.log
+          url=$(grep -oE 'https://[a-zA-Z0-9.-]+\.workers\.dev' deploy.log | head -1)
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+          echo "Worker URL: $url" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Sync secrets
+        env:
+          DISCORD_PUBLIC_KEY: ${{ secrets.DISCORD_PUBLIC_KEY }}
+          DISCORD_APPLICATION_ID: ${{ secrets.DISCORD_APPLICATION_ID }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+        run: |
+          node -e 'const e=process.env; const o={DISCORD_PUBLIC_KEY:e.DISCORD_PUBLIC_KEY, DISCORD_APPLICATION_ID:e.DISCORD_APPLICATION_ID}; if (e.GROQ_API_KEY) o.GROQ_API_KEY=e.GROQ_API_KEY; require("fs").writeFileSync("/tmp/secrets.json", JSON.stringify(o))'
+          npx wrangler secret bulk /tmp/secrets.json
+          rm /tmp/secrets.json
+
+      - name: Register slash commands
+        env:
+          DISCORD_TOKEN: ${{ secrets.DISCORD_TOKEN }}
+          DISCORD_APPLICATION_ID: ${{ secrets.DISCORD_APPLICATION_ID }}
+        run: npm run register
+
+      - name: Point Discord at the worker
+        if: steps.deploy.outputs.url != ''
+        env:
+          DISCORD_TOKEN: ${{ secrets.DISCORD_TOKEN }}
+          ENDPOINT: ${{ steps.deploy.outputs.url }}/interactions
+        run: |
+          sleep 5  # give the new version a moment to go live
+          code=$(curl -s -o resp.json -w '%{http_code}' -X PATCH https://discord.com/api/v10/applications/@me \
+            -H "Authorization: Bot $DISCORD_TOKEN" -H 'Content-Type: application/json' \
+            -d "{\"interactions_endpoint_url\":\"$ENDPOINT\"}")
+          if [ "$code" != "200" ]; then
+            echo "::warning::Couldn't set the interactions URL automatically ($code). Paste $ENDPOINT into the Discord Developer Portal > General Information."
+            cat resp.json
+          else
+            echo "Discord interactions endpoint: $ENDPOINT" >> "$GITHUB_STEP_SUMMARY"
+          fi
